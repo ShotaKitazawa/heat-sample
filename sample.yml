@@ -1,0 +1,88 @@
+heat_template_version: pike
+
+resources:
+
+  security_group_allallow:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: AllAllow
+      rules:
+        - direction: ingress
+          ethertype: IPv4
+          remote_ip_prefix: 0.0.0.0/0
+          protocol: tcp
+        - direction: ingress
+          ethertype: IPv4
+          remote_ip_prefix: 0.0.0.0/0
+          protocol: udp
+        - direction: ingress
+          ethertype: IPv4
+          remote_ip_prefix: 0.0.0.0/0
+          protocol: icmp
+
+  monitor_network:
+    type: OS::Neutron::Net
+    properties:
+      name: monitor
+  monitor_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      name: monitor
+      network_id: { get_resource: monitor_network }
+      ip_version: 4
+      cidr: 172.16.0.0/16
+
+  samplenet:
+    type: OS::Neutron::Net
+    properties:
+      name: sample
+  subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      name: sample
+      network_id: { get_resource: samplenet }
+      ip_version: 4
+      cidr: 192.168.50.184/29
+      enable_dhcp: false
+
+  script1:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: ungrouped
+      config:
+        str_replace:
+          template:
+            get_file: "sample.sh"
+          params:
+            '$$interfaces': 'eth0 eth1 eth2'
+            '$$addresses': 'dhcp 10.0.0.10/24 dhcp'
+
+  scripts:
+    type: OS::Heat::MultipartMime
+    properties:
+      parts:
+        - config: { get_resource: script1 }
+
+  volume:
+    type: OS::Cinder::Volume
+    properties:
+      name: volume
+      image: Ubuntu-Router
+      size: 10
+      availability_zone: nova
+  server:
+    type: OS::Nova::Server
+    properties:
+      name: sample
+      key_name: default
+      flavor: router
+      block_device_mapping_v2:
+        - volume_id: { get_resource: volume }
+      networks:
+        - network: { get_resource: monitor_network }
+        - network: { get_resource: samplenet }
+        - network: external
+      security_groups:
+        - { get_resource: security_group_allallow }
+      user_data_format: SOFTWARE_CONFIG
+      user_data: { get_resource: scripts }
